@@ -488,7 +488,7 @@
   let highScore = parseInt(localStorage.getItem(HIGH_KEY) || '0', 10);
   highVal.textContent = highScore;
 
-  let soundOn = true;
+  let soundOn = localStorage.getItem('neonSnakeMuted') !== '1';
   let wrapMode = true;
   wrapBtn.classList.toggle('active', wrapMode);
 
@@ -551,6 +551,7 @@
   }
 
   document.getElementById('nameContinueBtn').addEventListener('click', () => {
+    ensureAudio(); sfxClick();
     const typed = nameInput.value.trim();
     playerName = typed.length > 0 ? typed : 'Player';
     welcomeName.textContent = `Welcome, ${playerName}!`;
@@ -560,19 +561,20 @@
     if(e.key === 'Enter') document.getElementById('nameContinueBtn').click();
   });
   document.getElementById('editNameBtn').addEventListener('click', () => {
+    sfxClick();
     nameInput.value = playerName === 'Player' ? '' : playerName;
     showScreen('name');
   });
-  document.getElementById('newGameBtn').addEventListener('click', () => showScreen('modeSelect'));
-  document.getElementById('leaderboardBtn').addEventListener('click', () => { renderLeaderboard(); showScreen('leaderboard'); });
-  document.getElementById('howToBtn').addEventListener('click', () => showScreen('howto'));
-  document.getElementById('modeBackBtn').addEventListener('click', () => showScreen('menu'));
-  document.getElementById('lbBackBtn').addEventListener('click', () => showScreen('menu'));
-  document.getElementById('howToBackBtn').addEventListener('click', () => showScreen('menu'));
-  document.getElementById('modeCardWrap').addEventListener('click', () => beginGameFromModeSelect('wrap'));
-  document.getElementById('modeCardClassic').addEventListener('click', () => beginGameFromModeSelect('classic'));
-  document.getElementById('changeModeBtn').addEventListener('click', () => { gameOverOverlay.style.display = 'none'; showScreen('modeSelect'); });
-  document.getElementById('mainMenuBtn').addEventListener('click', () => { gameOverOverlay.style.display = 'none'; showScreen('menu'); });
+  document.getElementById('newGameBtn').addEventListener('click', () => { sfxClick(); showScreen('modeSelect'); });
+  document.getElementById('leaderboardBtn').addEventListener('click', () => { sfxClick(); renderLeaderboard(); showScreen('leaderboard'); });
+  document.getElementById('howToBtn').addEventListener('click', () => { sfxClick(); showScreen('howto'); });
+  document.getElementById('modeBackBtn').addEventListener('click', () => { sfxClick(); showScreen('menu'); });
+  document.getElementById('lbBackBtn').addEventListener('click', () => { sfxClick(); showScreen('menu'); });
+  document.getElementById('howToBackBtn').addEventListener('click', () => { sfxClick(); showScreen('menu'); });
+  document.getElementById('modeCardWrap').addEventListener('click', () => { sfxClick(); beginGameFromModeSelect('wrap'); });
+  document.getElementById('modeCardClassic').addEventListener('click', () => { sfxClick(); beginGameFromModeSelect('classic'); });
+  document.getElementById('changeModeBtn').addEventListener('click', () => { sfxClick(); gameOverOverlay.style.display = 'none'; showScreen('modeSelect'); });
+  document.getElementById('mainMenuBtn').addEventListener('click', () => { sfxClick(); gameOverOverlay.style.display = 'none'; showScreen('menu'); });
 
   // ---------- Audio ----------
   let audioCtx = null;
@@ -581,26 +583,52 @@
       try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ soundOn=false; }
     }
   }
-  function beep(freq, dur, type, vol){
+  function beep(freq, dur, type, vol, glideTo){
     if(!soundOn || !audioCtx) return;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = type || 'sine';
-    osc.frequency.value = freq;
+    const now = audioCtx.currentTime;
+    osc.frequency.setValueAtTime(freq, now);
+    if(glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, now + dur);
     gain.gain.value = (vol!==undefined?vol:0.08);
     osc.connect(gain).connect(audioCtx.destination);
-    const now = audioCtx.currentTime;
     gain.gain.setValueAtTime(gain.gain.value, now);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
     osc.start(now);
     osc.stop(now + dur);
   }
+  // Neon Snake's sonic identity: dark, low-register square-wave tension —
+  // deliberately moodier than a typical bright arcade beep set.
+  function sfxClick(){ beep(196,0.09,'square',0.05,150); }
   function sfxEat(){ beep(520,0.12,'square',0.07); }
   function sfxGold(){ beep(700,0.08,'triangle',0.08); setTimeout(()=>beep(980,0.12,'triangle',0.08),70); }
   function sfxSpeed(){ beep(300,0.15,'sawtooth',0.05); }
   function sfxPoison(){ beep(160,0.2,'sawtooth',0.06); }
   function sfxDie(){ beep(200,0.35,'sawtooth',0.09); setTimeout(()=>beep(90,0.4,'sawtooth',0.08),120); }
   function sfxLevel(){ beep(440,0.1,'sine',0.07); setTimeout(()=>beep(660,0.15,'sine',0.07),90); }
+
+  // ---------- Background music: hypnotic E-minor-pentatonic loop ----------
+  // Tempo very slightly quickens with level, echoing the rising tension of
+  // a longer, faster snake, without ever feeling frantic.
+  const BG_SCALE = [164.81, 196.00, 220.00, 246.94, 293.66]; // E3 G3 A3 B3 D4
+  const BG_PATTERN = [0,2,1,3,0,4,2,1];
+  let bgTimer = null, bgStep = 0;
+  function bgMusicTick(){
+    const freq = BG_SCALE[BG_PATTERN[bgStep % BG_PATTERN.length]];
+    beep(freq, 0.22, 'square', 0.028);
+    bgStep++;
+    const interval = Math.max(260, 420 - (level-1)*12);
+    bgTimer = setTimeout(bgMusicTick, interval);
+  }
+  function startBgMusic(){
+    if(bgTimer || !soundOn) return;
+    bgStep = 0;
+    bgMusicTick();
+  }
+  function stopBgMusic(){
+    if(bgTimer){ clearTimeout(bgTimer); bgTimer = null; }
+  }
 
   // ---------- Game State ----------
   const DIRS = {
@@ -763,10 +791,12 @@
     }
   }, {passive:true});
 
+  soundBtn.textContent = soundOn ? '🔊' : '🔇';
   soundBtn.addEventListener('click', ()=>{
     soundOn = !soundOn;
+    localStorage.setItem('neonSnakeMuted', soundOn ? '0' : '1');
     soundBtn.textContent = soundOn ? '🔊' : '🔇';
-    if(soundOn) ensureAudio();
+    if(soundOn){ ensureAudio(); if(state==='playing') startBgMusic(); } else { stopBgMusic(); }
   });
   wrapBtn.addEventListener('click', ()=>{
     wrapMode = !wrapMode;
@@ -781,10 +811,12 @@
     if(state==='playing'){
       state='paused';
       pauseOverlay.style.display='flex';
+      stopBgMusic();
     }else if(state==='paused'){
       state='playing';
       pauseOverlay.style.display='none';
       lastTime = performance.now();
+      startBgMusic();
     }
   }
 
@@ -796,10 +828,12 @@
     gameOverOverlay.style.display='none';
     pauseOverlay.style.display='none';
     lastTime = performance.now();
+    startBgMusic();
   }
 
   function endGame(){
     state='gameover';
+    stopBgMusic();
     sfxDie();
     screenShake = 14;
     flashEl.classList.remove('show'); void flashEl.offsetWidth; flashEl.classList.add('show');
